@@ -2,7 +2,8 @@ version: '2.2'
 services:
     sharelatex:
         restart: always
-        image: worksasintended/overleaf_ldap
+        # image: worksasintended/overleaf_ldap
+        build: .
         container_name: sharelatex
         depends_on:
             mongo:
@@ -12,24 +13,24 @@ services:
         privileged: false
         ports:
             - 80:80
+            # - 40000:40000 # For Node debug
         links:
             - mongo
             - redis
     #    volumes:
     #        - ~/sharelatex_data:/var/lib/sharelatex
         environment:
-            SHARELATEX_APP_NAME: Overleaf Community Edition
+            SHARELATEX_APP_NAME: Overleaf UniPi
             SHARELATEX_MONGO_URL: mongodb://mongo/sharelatex
-            ADMIN_MAIL: example@mail.com
-            DOMAIN: example.com
-            LDAP_SERVER: ldaps://my-server.com:636
-            LDAP_BIND_DN: cn=asdf,ou=asdf,dc=asdf
-            LDAP_BIND_PW: itsasecret
+            ADMIN_MAIL: admin@unipi.it
+            DOMAIN: unipi.it
+            LDAP_SERVER: ldap://idmauth.unipi.it
 
             # Same property, unfortunately with different names in
             # different locations
             SHARELATEX_REDIS_HOST: redis
             REDIS_HOST: redis
+            # DEBUG_NODE: "true"
 
             ENABLED_LINKED_FILE_TYPES: 'url,project_file'
 

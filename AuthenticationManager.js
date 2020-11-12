@@ -32,6 +32,7 @@ const AuthenticationManager = {
             AuthenticationManager.authUserObj(error, user, query, password, callback)
         })
     },
+    
     //login with any passwd
     login(user, password, callback) {
         AuthenticationManager.checkRounds(
@@ -281,57 +282,52 @@ const AuthenticationManager = {
     },
 
     ldapAuth(query, passwd, onSuccess, callback, adminMail, userObj) {
-        const client = ldap.createClient({
-            url: process.env.LDAP_SERVER
-        });
-        const bindDn = process.env.LDAP_BIND_DN
-        const bindPassword = process.env.LDAP_BIND_PW
-        client.bind(bindDn, bindPassword, function (err) {
-            if (err == null) {
-                const opts = {
-                    filter: '(&(objectClass=posixAccount)(uid=' + query.email.split('@')[0] + '))',
-                    scope: 'sub',
-                    attributes: ['dn']
-                };
-
-                client.search('ou=Personen,dc=uni-greifswald,dc=de,dc=TLD', opts, function (err, res) {
-                    if (err) {
-                        return callback(null, null)
-                    }
-                    res.on('searchEntry', function (entry) {
-                        userDn = entry.objectName
-                        client.bind(userDn, passwd, function (err) {
-                            if (err == null) {
-                                //console.log("ldap positive")
-                                onSuccess(query, adminMail, userObj, callback)
-                                client.unbind()
-                                return null
-                            } else {
-                                //console.log("ldap negative")
-                                client.unbind()
-                                return callback(null, null)
-                            }
-                        })
-                    })
-                    res.on('error', err => {
-                        console.error('error: ' + err.message);
-                        client.unbind()
-                        return callback(null, null)
-                    });
-                    res.on('end', result => {
-                        //if nothing written (user not found)
-                        if(result.connection._writableState.writing == false){
-                            client.unbind()
-                            return callback(null, null)
-                        }
-                    });
-                });
-
-            } else {
-                return callback(null, null)
+        
+        const tlsOpts = { 
+            checkServerIdentity: function(serverName, cert) {
+              return undefined; 
             }
-        })
+        };
+        
+        const client = ldap.createClient({
+            url: process.env.LDAP_SERVER,
+            tlsOptions: tlsOpts
+        });
+        
+        const starttlsOpts = {
+           rejectUnauthorized: false // for self-signed
+        };
+        
+        client.starttls(starttlsOpts, client.controls, function(err, res) {
+            if (err != null) {
+                return callback(null, null);
+            }
+            else {
+                const username = query.email.split('@')[0];
+              
+                const bindDn = "uid=" + username + ",dc=studenti,ou=people,dc=unipi,dc=it";
+                const bindPassword = passwd;
+            
+                client.bind(bindDn, bindPassword, function (err) {
+                    if (err) {
+                        const bindDn2 = "uid=" + username + ",dc=dm,ou=people,dc=unipi,dc=it";
+                        client.bind(bindDn2, bindPassword, function (err) {
+                            if (err == null) {
+                                onSuccess(query, adminMail, userObj, callback);
+                            }
+                            else {
+                                callback(null, null);
+                            }
+                        });
+                    }
+                    else {
+                        onSuccess(query, adminMail, userObj, callback)
+                    }
+                });
+            }  
+        });
     }
+    
 }
 
 AuthenticationManager.promises = {
