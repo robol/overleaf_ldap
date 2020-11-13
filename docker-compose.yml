@@ -26,12 +26,17 @@ services:
             ADMIN_MAIL: admin@unipi.it
             DOMAIN: unipi.it
             LDAP_SERVER: ldap://idmauth.unipi.it
+            LDAP_SERVER_DM: ldaps://student.dm.unipi.it
 
             # Same property, unfortunately with different names in
             # different locations
             SHARELATEX_REDIS_HOST: redis
             REDIS_HOST: redis
             # DEBUG_NODE: "true"
+
+            # This is currently needed to avoid verification in 
+            # development. 
+            NODE_TLS_REJECT_UNAUTHORIZED: "0"
 
             ENABLED_LINKED_FILE_TYPES: 'url,project_file'
 

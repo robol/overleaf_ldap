@@ -42,14 +42,12 @@ const AuthenticationManager = {
 
   authUserObj(error, user, query, password, callback) {
     //non ldap / local admin user
-    const adminMail = process.env.ADMIN_MAIL
-    const domain = process.env.DOMAIN
+    const adminMail = process.env.ADMIN_MAIL;
+    
     if (error) {
       return callback(error)
     }
-    if (query.email != adminMail && query.email.split('@')[1] != domain) {
-      return callback(null, null)
-    }
+    
     //check for local admin user
     if (user && user.hashedPassword) {
       if (user.email == adminMail) {
@@ -65,6 +63,7 @@ const AuthenticationManager = {
         return null
       }
     }
+    
     //check if user is in ldap
     AuthenticationManager.ldapAuth(query, password,
       AuthenticationManager.createIfNotExistAndLogin, callback, adminMail, user)
@@ -118,52 +117,94 @@ const AuthenticationManager = {
       AuthenticationManager.login(user, "randomPass", callback)
     }
   },
-
+  
+  //
+  // This function calls the callback with true if login succeeds, 
+  // and with false otherwise. 
+  //
+  checkLogin(client, username, password, domain, callback) {
+      console.log("Called checkLogin with domain = " + domain);
+      switch (domain) {
+          case 'unipi.it':
+              client.bind(
+                  "uid=" + username + ",dc=dm,ou=people,dc=unipi,dc=it", 
+                  password, function(err) {
+                      callback(err == null);
+                  });
+              break;
+          case 'studenti.unipi.it':
+              client.bind(
+                  "uid=" + username + ",dc=studenti,ou=people,dc=unipi,dc=it", 
+                  password, function(err) {
+                      callback(err == null);
+                  });
+              break;
+          case 'mail.dm.unipi.it':
+              client.bind(
+                  "uid=" + username + ",ou=People,dc=student,dc=dm,dc=unipi,dc=it",
+                  password, function (err) {
+                      callback(err == null);
+                  });
+              break;
+          default:
+              callback(false);
+      }
+  },
+  
   ldapAuth(query, passwd, onSuccess, callback, adminMail, userObj) {
 
-    const tlsOpts = {
-      checkServerIdentity: function(serverName, cert) {
-        return undefined;
-      }
-    };
+      const tlsOpts = {
+          checkServerIdentity: function(serverName, cert) {
+              return undefined;
+          },
+          rejectUnauthorzed: false
+      };
 
-    const client = ldap.createClient({
-      url: process.env.LDAP_SERVER,
-      tlsOptions: tlsOpts
-    });
+      const starttlsOpts = {
+          rejectUnauthorized: false // for self-signed
+      };
 
-    const starttlsOpts = {
-      rejectUnauthorized: false // for self-signed
-    };
-
-    client.starttls(starttlsOpts, client.controls, function(err, res) {
-      if (err != null) {
-        return callback(null, null);
-      }
-      else {
-        const username = query.email.split('@')[0];
-
-        const bindDn = "uid=" + username + ",dc=studenti,ou=people,dc=unipi,dc=it";
-        const bindPassword = passwd;
-
-        client.bind(bindDn, bindPassword, function (err) {
-          if (err) {
-            const bindDn2 = "uid=" + username + ",dc=dm,ou=people,dc=unipi,dc=it";
-            client.bind(bindDn2, bindPassword, function (err) {
-              if (err == null) {
-                onSuccess(query, adminMail, userObj, callback);
+      const client = ldap.createClient({
+          url: process.env.LDAP_SERVER,
+          tlsOptions: tlsOpts
+      });
+    
+      const client_dm = ldap.createClient({
+          url: process.env.LDAP_SERVER_DM,
+          tlsOptions: tlsOpts
+      });
+    
+      const pieces = query.email.split('@');
+      const username = pieces[0];
+      const domain = pieces[1];
+    
+      if (domain == 'mail.dm.unipi.it') {
+          AuthenticationManager.checkLogin(client_dm, username, passwd, domain, function (res) {
+              if (res) {
+                  onSuccess(query, adminMail, userObj, callback);
               }
               else {
-                callback(null, null);
+                  callback(null, null);
               }
-            });
-          }
-          else {
-            onSuccess(query, adminMail, userObj, callback)
-          }
-        });
+          });
       }
-    });
+      else {
+          client.starttls(starttlsOpts, client.controls, function (err, res) {
+              if (err == null) {
+                  AuthenticationManager.checkLogin(client, username, passwd, domain, function (res) {
+                      if (res) {
+                          onSuccess(query, adminMail, userObj, callback);
+                      }
+                      else {
+                          callback(null, null);
+                      }
+                  });
+              }
+              else {
+                  callback(null, null);
+              }
+          });
+      }
   },
 
   // End of custom methods for LDAP auth
