@@ -24,7 +24,7 @@ const _checkWriteResult = function(result, callback) {
 }
 
 const AuthenticationManager = {
-authenticate(query, password, callback) {
+  authenticate(query, password, callback) {
     // Using Mongoose for legacy reasons here. The returned User instance
     // gets serialized into the session and there may be subtle differences
     // between the user returned by Mongoose vs mongodb (such as default values)
@@ -32,141 +32,141 @@ authenticate(query, password, callback) {
       AuthenticationManager.authUserObj(error, user, query, password, callback);
     });
   },
-  
+
+  // The following methods, namely authUserObj, login, createIfNotExistAndLogin,
+  // and ldapAuth, have been introduced to handle the LDAP authentication.
+  //
+  // At the moment they are specific for the configuration for the UniPi LDAP
+  // server, although they might be made to work more generally for more
+  // specific cases.
+
   authUserObj(error, user, query, password, callback) {
-        //non ldap / local admin user
-        const adminMail = process.env.ADMIN_MAIL
-        const domain = process.env.DOMAIN
-        if (error) {
+    //non ldap / local admin user
+    const adminMail = process.env.ADMIN_MAIL
+    const domain = process.env.DOMAIN
+    if (error) {
+      return callback(error)
+    }
+    if (query.email != adminMail && query.email.split('@')[1] != domain) {
+      return callback(null, null)
+    }
+    //check for local admin user
+    if (user && user.hashedPassword) {
+      if (user.email == adminMail) {
+        bcrypt.compare(password, user.hashedPassword, function (error, match) {
+          if (error) {
             return callback(error)
-        }
-        //check for domain
-        //console.log("check for domain")
-        if (query.email != adminMail && query.email.split('@')[1] != domain) {
-            //console.log("wrong domain")
-            //console.log(query.email.split('@')[1])
+          }
+          if (!match) {
             return callback(null, null)
+          }
+          AuthenticationManager.login(user, password, callback)
+        })
+        return null
+      }
+    }
+    //check if user is in ldap
+    AuthenticationManager.ldapAuth(query, password,
+      AuthenticationManager.createIfNotExistAndLogin, callback, adminMail, user)
+  },
+
+  //login with any passwd
+  login(user, password, callback) {
+    AuthenticationManager.checkRounds(
+      user,
+      user.hashedPassword,
+      password,
+      function (err) {
+        if (err) {
+          return callback(err)
         }
-        //check for local admin user
-        if (user && user.hashedPassword) {
-            //console.log("existing user: login event")
-            if (user.email == adminMail) {
-                //console.log("admin user: login event")
-                bcrypt.compare(password, user.hashedPassword, function (error, match) {
-                    if (error) {
-                        return callback(error)
-                    }
-                    if (!match) {
-                        //console.log("admin pass does not match")
-                        return callback(null, null)
-                    }
-                    //console.log("admin user logged in")
-                    AuthenticationManager.login(user, password, callback)
-                })
-                return null
-            }
+        callback(null, user)
+      }
+    )
+  },
+
+  createIfNotExistAndLogin(query, adminMail, user, callback) {
+    if (query.email != adminMail & (!user || !user.hashedPassword)) {
+      //create random pass for local userdb, does not get checked for ldap users during login
+      let pass = require("crypto").randomBytes(32).toString("hex")
+      const userRegHand = require('../User/UserRegistrationHandler.js')
+      userRegHand.registerNewUser({
+        email: query.email,
+        password: pass
+      },
+      function (error, user) {
+        if (error) {
+          callback(error)
         }
-        //check if user is in ldap
-        AuthenticationManager.ldapAuth(query, password, AuthenticationManager.createIfNotExistAndLogin, callback, adminMail, user)
-    },
-    
-    //login with any passwd
-    login(user, password, callback) {
-        AuthenticationManager.checkRounds(
-            user,
-            user.hashedPassword,
-            password,
-            function (err) {
-                if (err) {
-                    return callback(err)
-                }
-                callback(null, user)
-            }
-        )
-    },
-    
-    createIfNotExistAndLogin(query, adminMail, user, callback) {
-        if (query.email != adminMail & (!user || !user.hashedPassword)) {
-            //create random pass for local userdb, does not get checked for ldap users during login
-            let pass = require("crypto").randomBytes(32).toString("hex")
-            const userRegHand = require('../User/UserRegistrationHandler.js')
-            userRegHand.registerNewUser({
-                email: query.email,
-                password: pass
-            },
-            function (error, user) {
-                if (error) {
-                    callback(error)
-                }
-                
-                const update = {
-	               admin: false,
-		       'emails.0.confirmedAt': Date.now()
-                };
-             
-                console.log("user %s added to local library", query.email)
-                User.findOneAndUpdate(query, update, (error, user) => {
-                    if (error) {
-                        console.log(error);
-                        return callback(error)
-                    }
-                    if (user && user.hashedPassword) {
-                        AuthenticationManager.login(user, "randomPass", callback)
-                    }
-               })
-           })
-            //return callback(null, null)
-        } else {
+
+        const update = {
+          admin: false,
+          'emails.0.confirmedAt': Date.now()
+        };
+
+        console.log("user %s added to local library", query.email)
+        User.findOneAndUpdate(query, update, (error, user) => {
+          if (error) {
+            return callback(error)
+          }
+          if (user && user.hashedPassword) {
             AuthenticationManager.login(user, "randomPass", callback)
-        }
-    },
-  
+          }
+        })
+      })
+    } else {
+      AuthenticationManager.login(user, "randomPass", callback)
+    }
+  },
+
   ldapAuth(query, passwd, onSuccess, callback, adminMail, userObj) {
-        
-        const tlsOpts = { 
-            checkServerIdentity: function(serverName, cert) {
-              return undefined; 
-            }
-        };
-        
-        const client = ldap.createClient({
-            url: process.env.LDAP_SERVER,
-            tlsOptions: tlsOpts
+
+    const tlsOpts = {
+      checkServerIdentity: function(serverName, cert) {
+        return undefined;
+      }
+    };
+
+    const client = ldap.createClient({
+      url: process.env.LDAP_SERVER,
+      tlsOptions: tlsOpts
+    });
+
+    const starttlsOpts = {
+      rejectUnauthorized: false // for self-signed
+    };
+
+    client.starttls(starttlsOpts, client.controls, function(err, res) {
+      if (err != null) {
+        return callback(null, null);
+      }
+      else {
+        const username = query.email.split('@')[0];
+
+        const bindDn = "uid=" + username + ",dc=studenti,ou=people,dc=unipi,dc=it";
+        const bindPassword = passwd;
+
+        client.bind(bindDn, bindPassword, function (err) {
+          if (err) {
+            const bindDn2 = "uid=" + username + ",dc=dm,ou=people,dc=unipi,dc=it";
+            client.bind(bindDn2, bindPassword, function (err) {
+              if (err == null) {
+                onSuccess(query, adminMail, userObj, callback);
+              }
+              else {
+                callback(null, null);
+              }
+            });
+          }
+          else {
+            onSuccess(query, adminMail, userObj, callback)
+          }
         });
-        
-        const starttlsOpts = {
-           rejectUnauthorized: false // for self-signed
-        };
-        
-        client.starttls(starttlsOpts, client.controls, function(err, res) {
-            if (err != null) {
-                return callback(null, null);
-            }
-            else {
-                const username = query.email.split('@')[0];
-              
-                const bindDn = "uid=" + username + ",dc=studenti,ou=people,dc=unipi,dc=it";
-                const bindPassword = passwd;
-            
-                client.bind(bindDn, bindPassword, function (err) {
-                    if (err) {
-                        const bindDn2 = "uid=" + username + ",dc=dm,ou=people,dc=unipi,dc=it";
-                        client.bind(bindDn2, bindPassword, function (err) {
-                            if (err == null) {
-                                onSuccess(query, adminMail, userObj, callback);
-                            }
-                            else {
-                                callback(null, null);
-                            }
-                        });
-                    }
-                    else {
-                        onSuccess(query, adminMail, userObj, callback)
-                    }
-                });
-            }  
-        });
-    },    
+      }
+    });
+  },
+
+  // End of custom methods for LDAP auth
 
   validateEmail(email) {
     const parsed = EmailHelper.parseEmail(email)
