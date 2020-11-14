@@ -21,9 +21,9 @@ Edit `docker-compose.yml` to fit your local setup.
 - `ADMIN_MAIL`: login for local admin user which gets checked before the ldap routine during login. This is the only user that can login if ldap is down and does not need to exist in ldap. You need to create the same user in overleaf, for example using the launchpad. The admin user does not have to be in the same domain as other users.
 - `DOMAIN`: At the current state, only users of a single domain are allowed (though easy to change). For a given user `user123@domain123.com` trying to login, `domain123.com` is compared with `DOMAIN`. For the ldap authentification only the username `user123` is used.  
 - `LDAP_SERVER`: address of the ldap server
+- `LDAP_SERVER_DM`: An address of a secondary LDAP server. 
 
-You will need to tweak the code in `AuthenticationManager.js` to have the
-correct base DN.
+The server to authenticate with is currently selected based on the domain part of the e-mail address, and is hardcoded inside `AuthenticationMananager.js`. Note that one server uses STARTTLS and the other just plain SSL. The code should be fairly easy to adapt to handle more general situations. The correcte base DN used to search for users should be fixed as well. 
 
 For persistent storage use volumes.
 
