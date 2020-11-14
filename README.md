@@ -10,7 +10,7 @@ STARTTLS (hardcoded) and the given credentials to bind to LDAP directly, without
 the need of an LDAP superuser password.
 
 For a more generic solution, please refer to
-the original repository](https://github.com/worksasintended/overleaf_ldap).
+the [original repository](https://github.com/worksasintended/overleaf_ldap).
 
 This solution uses ldapjs.
 
