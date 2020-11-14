@@ -119,35 +119,34 @@ const AuthenticationManager = {
   },
   
   //
-  // This function calls the callback with true if login succeeds, 
-  // and with false otherwise. 
+  // This function checks the credentials against the required LDAP server, 
+  // using the correct DN to bind. 
   //
   checkLogin(client, username, password, domain, callback) {
-      console.log("Called checkLogin with domain = " + domain);
       switch (domain) {
           case 'unipi.it':
               client.bind(
                   "uid=" + username + ",dc=dm,ou=people,dc=unipi,dc=it", 
                   password, function(err) {
-                      callback(err == null);
+                      callback(err, null);
                   });
               break;
           case 'studenti.unipi.it':
               client.bind(
                   "uid=" + username + ",dc=studenti,ou=people,dc=unipi,dc=it", 
                   password, function(err) {
-                      callback(err == null);
+                      callback(err, null);
                   });
               break;
           case 'mail.dm.unipi.it':
               client.bind(
                   "uid=" + username + ",ou=People,dc=student,dc=dm,dc=unipi,dc=it",
                   password, function (err) {
-                      callback(err == null);
+                      callback(err, null);
                   });
               break;
           default:
-              callback(false);
+              callback(null, null);
       }
   },
   
@@ -179,24 +178,24 @@ const AuthenticationManager = {
       const domain = pieces[1];
     
       if (domain == 'mail.dm.unipi.it') {
-          AuthenticationManager.checkLogin(client_dm, username, passwd, domain, function (res) {
-              if (res) {
+          AuthenticationManager.checkLogin(client_dm, username, passwd, domain, function (err, res) {
+              if (err == null) {
                   onSuccess(query, adminMail, userObj, callback);
               }
               else {
-                  callback(null, null);
+                  callback(err, null);
               }
           });
       }
       else {
           client.starttls(starttlsOpts, client.controls, function (err, res) {
               if (err == null) {
-                  AuthenticationManager.checkLogin(client, username, passwd, domain, function (res) {
-                      if (res) {
+                  AuthenticationManager.checkLogin(client, username, passwd, domain, function (err, res) {
+                      if (err == null) {
                           onSuccess(query, adminMail, userObj, callback);
                       }
                       else {
-                          callback(null, null);
+                          callback(err, null);
                       }
                   });
               }
