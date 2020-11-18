@@ -84,14 +84,21 @@ const AuthenticationManager = {
     )
   },
 
-  createIfNotExistAndLogin(query, adminMail, user, callback) {
+  createIfNotExistAndLogin(query, adminMail, user, cn, callback) {
     if (query.email != adminMail & (!user || !user.hashedPassword)) {
       //create random pass for local userdb, does not get checked for ldap users during login
       let pass = require("crypto").randomBytes(32).toString("hex")
       const userRegHand = require('../User/UserRegistrationHandler.js')
+      
+      let cn_pieces = cn.split(' ');
+      let first_name = cn_pieces[0];
+      let last_name = cn_pieces.slice(1).join(' ');
+      
       userRegHand.registerNewUser({
         email: query.email,
-        password: pass
+        password: pass,
+        first_name: first_name,
+        last_name: last_name
       },
       function (error, user) {
         if (error) {
@@ -118,36 +125,71 @@ const AuthenticationManager = {
     }
   },
   
+  findUserDetails(client, username, domain, base, callback) {
+      const opts = {
+          scope: 'sub',
+          attributes: [ 'cn', 'uid' ],
+          filter: 'uid=' + username
+      };
+      
+      var counter = 0;
+  
+      client.search(base, opts, function (err, res) {
+          res.on('searchEntry', function (entry) {
+              counter = counter + 1;
+              if (counter == 1) {
+                  let cn = entry.toObject().cn;
+                  callback(null, cn);
+              }
+          });
+          
+          res.on('error', (err) => {
+              callback('Error searching user details', null)
+          });
+          res.on('end', (res) => {
+              if (counter == 0) {
+                  callback('Error search user details', null);
+              }
+              
+              client.unbind();
+          });
+      });
+  },
+  
   //
   // This function checks the credentials against the required LDAP server, 
   // using the correct DN to bind. 
   //
   checkLogin(client, username, password, domain, callback) {
+      var bindDN = '';
+      var base = '';
+  
       switch (domain) {
           case 'unipi.it':
-              client.bind(
-                  "uid=" + username + ",dc=dm,ou=people,dc=unipi,dc=it", 
-                  password, function(err) {
-                      callback(err, null);
-                  });
+              base = 'dc=dm,ou=people,dc=unipi,dc=it';
+              bindDN = "uid=" + username + "," + base;
               break;
           case 'studenti.unipi.it':
-              client.bind(
-                  "uid=" + username + ",dc=studenti,ou=people,dc=unipi,dc=it", 
-                  password, function(err) {
-                      callback(err, null);
-                  });
+              base = 'dc=studenti,ou=people,dc=unipi,dc=it';
+              bindDN = "uid=" + username + "," + base;
               break;
           case 'mail.dm.unipi.it':
-              client.bind(
-                  "uid=" + username + ",ou=People,dc=student,dc=dm,dc=unipi,dc=it",
-                  password, function (err) {
-                      callback(err, null);
-                  });
+              base = 'ou=People,dc=student,dc=dm,dc=unipi,dc=it';
+              bindDN = "uid=" + username + "," + base;
               break;
           default:
-              callback(null, null);
+              callback('Invalid domain', null);
+              return;
       }
+      
+      client.bind(bindDN, password, function (err) {
+          if (err) {
+              callback('Invalid password', null);
+          }
+          else {
+              AuthenticationManager.findUserDetails(client, username, domain, base, callback);
+          }
+      });
   },
   
   ldapAuth(query, passwd, onSuccess, callback, adminMail, userObj) {
@@ -180,10 +222,10 @@ const AuthenticationManager = {
       if (domain == 'mail.dm.unipi.it') {
           AuthenticationManager.checkLogin(client_dm, username, passwd, domain, function (err, res) {
               if (err == null) {
-                  onSuccess(query, adminMail, userObj, callback);
+                  onSuccess(query, adminMail, userObj, res, callback);
               }
               else {
-                  callback(err, null);
+                  callback(null, null);
               }
           });
       }
@@ -192,10 +234,10 @@ const AuthenticationManager = {
               if (err == null) {
                   AuthenticationManager.checkLogin(client, username, passwd, domain, function (err, res) {
                       if (err == null) {
-                          onSuccess(query, adminMail, userObj, callback);
+                          onSuccess(query, adminMail, userObj, res, callback);
                       }
                       else {
-                          callback(err, null);
+                          callback(null, null);
                       }
                   });
               }
