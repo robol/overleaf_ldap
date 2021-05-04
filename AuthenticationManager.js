@@ -48,9 +48,16 @@ const AuthenticationManager = {
       return callback(error)
     }
     
+    const pieces = query.email.split('@');
+    const username = pieces[0];
+    const domain = pieces[1];
+    const ldap_domains = process.env.LDAP_DOMAIN === undefined ? [] : process.env.LDAP_DOMAIN.split(",");
+
     //check for local admin user
     if (user && user.hashedPassword) {
-      if (user.email == adminMail) {
+      // We authenticate emails that do not belong to LDAP domains using the
+      // traditional Overleaf authentication.
+      if (! ldap_domains.include(domain)) {
         bcrypt.compare(password, user.hashedPassword, function (error, match) {
           if (error) {
             return callback(error)

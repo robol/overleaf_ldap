@@ -27,6 +27,7 @@ services:
             DOMAIN: unipi.it
             LDAP_SERVER: ldap://idmauth.unipi.it
             LDAP_SERVER_DM: ldaps://student.dm.unipi.it
+            LDAP_DOMAINS: "unipi.it,studenti.unipi.it,mail.dm.unipi.it"
 
             # Same property, unfortunately with different names in
             # different locations
