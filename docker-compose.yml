@@ -3,7 +3,6 @@ services:
     sharelatex:
         restart: always
         image: robol/overleaf_ldap
-        container_name: sharelatex
         depends_on:
             mongo:
                 condition: service_healthy
@@ -62,7 +61,6 @@ services:
     mongo:
         restart: always
         image: mongo
-        container_name: mongo
         ports:
             - 27017
         volumes:
@@ -78,7 +76,6 @@ services:
     redis:
         restart: always
         image: redis:5
-        container_name: redis
         ports:
             - 6379
         volumes:

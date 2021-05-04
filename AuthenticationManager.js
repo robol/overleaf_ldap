@@ -1,12 +1,12 @@
 const Settings = require('settings-sharelatex')
 const { User } = require('../../models/User')
-const { db, ObjectId } = require('../../infrastructure/mongojs')
+const { db, ObjectId } = require('../../infrastructure/mongodb')
 const bcrypt = require('bcrypt')
 const EmailHelper = require('../Helpers/EmailHelper')
-const V1Handler = require('../V1/V1Handler')
+
 const {
   InvalidEmailError,
-  InvalidPasswordError
+  InvalidPasswordError,
 } = require('./AuthenticationErrors')
 const util = require('util')
 const ldap = require('ldapjs')
@@ -14,9 +14,9 @@ const ldap = require('ldapjs')
 const BCRYPT_ROUNDS = Settings.security.bcryptRounds || 12
 const BCRYPT_MINOR_VERSION = Settings.security.bcryptMinorVersion || 'a'
 
-const _checkWriteResult = function(result, callback) {
+const _checkWriteResult = function (result, callback) {
   // for MongoDB
-  if (result && result.nModified === 1) {
+  if (result && result.modifiedCount === 1) {
     callback(null, true)
   } else {
     callback(null, false)
@@ -267,12 +267,12 @@ const AuthenticationManager = {
 
   // validates a password based on a similar set of rules to `complexPassword.js` on the frontend
   // note that `passfield.js` enforces more rules than this, but these are the most commonly set.
-  // returns null on success, or an error string.
-  validatePassword(password) {
+  // returns null on success, or an error object.
+  validatePassword(password, email) {
     if (password == null) {
       return new InvalidPasswordError({
         message: 'password not set',
-        info: { code: 'not_set' }
+        info: { code: 'not_set' },
       })
     }
 
@@ -296,13 +296,13 @@ const AuthenticationManager = {
     if (password.length < min) {
       return new InvalidPasswordError({
         message: 'password is too short',
-        info: { code: 'too_short' }
+        info: { code: 'too_short' },
       })
     }
     if (password.length > max) {
       return new InvalidPasswordError({
         message: 'password is too long',
-        info: { code: 'too_long' }
+        info: { code: 'too_long' },
       })
     }
     if (
@@ -311,14 +311,26 @@ const AuthenticationManager = {
     ) {
       return new InvalidPasswordError({
         message: 'password contains an invalid character',
-        info: { code: 'invalid_character' }
+        info: { code: 'invalid_character' },
       })
+    }
+    if (typeof email === 'string' && email !== '') {
+      const startOfEmail = email.split('@')[0]
+      if (
+        password.indexOf(email) !== -1 ||
+        password.indexOf(startOfEmail) !== -1
+      ) {
+        return new InvalidPasswordError({
+          message: 'password contains part of email address',
+          info: { code: 'contains_email' },
+        })
+      }
     }
     return null
   },
 
-  setUserPassword(userId, password, callback) {
-    AuthenticationManager.setUserPasswordInV2(userId, password, callback)
+  setUserPassword(user, password, callback) {
+    AuthenticationManager.setUserPasswordInV2(user, password, callback)
   },
 
   checkRounds(user, hashedPassword, password, callback) {
@@ -329,14 +341,14 @@ const AuthenticationManager = {
     // check current number of rounds and rehash if necessary
     const currentRounds = bcrypt.getRounds(hashedPassword)
     if (currentRounds < BCRYPT_ROUNDS) {
-      AuthenticationManager.setUserPassword(user._id, password, callback)
+      AuthenticationManager.setUserPassword(user, password, callback)
     } else {
       callback()
     }
   },
 
   hashPassword(password, callback) {
-    bcrypt.genSalt(BCRYPT_ROUNDS, BCRYPT_MINOR_VERSION, function(error, salt) {
+    bcrypt.genSalt(BCRYPT_ROUNDS, BCRYPT_MINOR_VERSION, function (error, salt) {
       if (error) {
         return callback(error)
       }
@@ -344,48 +356,37 @@ const AuthenticationManager = {
     })
   },
 
-  setUserPasswordInV2(userId, password, callback) {
-    const validationError = this.validatePassword(password)
+  setUserPasswordInV2(user, password, callback) {
+    if (!user || !user.email || !user._id) {
+      return callback(new Error('invalid user object'))
+    }
+    const validationError = this.validatePassword(password, user.email)
     if (validationError) {
       return callback(validationError)
     }
-    this.hashPassword(password, function(error, hash) {
+    this.hashPassword(password, function (error, hash) {
       if (error) {
         return callback(error)
       }
-      db.users.update(
+      db.users.updateOne(
         {
-          _id: ObjectId(userId.toString())
+          _id: ObjectId(user._id.toString()),
         },
         {
           $set: {
-            hashedPassword: hash
+            hashedPassword: hash,
           },
           $unset: {
-            password: true
-          }
+            password: true,
+          },
         },
-        function(updateError, result) {
+        function (updateError, result) {
           if (updateError) {
             return callback(updateError)
           }
           _checkWriteResult(result, callback)
         }
       )
-    })
-  },
-
-  setUserPasswordInV1(v1UserId, password, callback) {
-    const validationError = this.validatePassword(password)
-    if (validationError) {
-      return callback(validationError.message)
-    }
-
-    V1Handler.doPasswordReset(v1UserId, password, function(error, reset) {
-      if (error) {
-        return callback(error)
-      }
-      callback(error, reset)
     })
   },
 
@@ -416,13 +417,13 @@ const AuthenticationManager = {
       }
     }
     return true
-  }
+  },
 }
 
 AuthenticationManager.promises = {
   authenticate: util.promisify(AuthenticationManager.authenticate),
   hashPassword: util.promisify(AuthenticationManager.hashPassword),
-  setUserPassword: util.promisify(AuthenticationManager.setUserPassword)
+  setUserPassword: util.promisify(AuthenticationManager.setUserPassword),
 }
 
 module.exports = AuthenticationManager

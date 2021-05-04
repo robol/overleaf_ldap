@@ -1,4 +1,4 @@
-FROM sharelatex/sharelatex:2.4.2
+FROM sharelatex/sharelatex:2.6.1
 LABEL maintainer="github.com/robol"
 
 RUN cd /var/www/sharelatex/web/ && npm install ldapjs && \
